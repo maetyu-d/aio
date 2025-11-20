@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>The Stability Index — v1.7.0</title>
+<style>
+  :root{
+    --bg:#000; --grid:#2a2a2a; --line:#8a8a8a; --text:#bdbdbd;
+    --green:#00ff7a; --red:#ff3b3b; --panel:#0a0a0a; --panel-border:#1a1a1a; --accent:#c8c8c8;
+    --road:#9aa7ff; --rail:#ffe08a; --pink:#ff5cae; --gold:#ffd700; --black:#666; --refined:#8fe3ff;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{ margin:0; background:var(--bg); color:var(--text);
+        font:14px/1.4 "IBM Plex Mono", ui-monospace, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+        letter-spacing:.2px; }
+
+  /* Splash */
+  #splash{ position:fixed; inset:0; background:#050505; display:flex; align-items:center; justify-content:center; z-index:9999;
+           opacity:0; pointer-events:auto; transition:opacity 1.5s ease; }
+  #splash.fadeIn{opacity:1} #splash.fadeOut{opacity:0; transition:opacity 1.0s ease;}
+  #splashInner{ text-align:center; color:var(--text); letter-spacing:2px; }
+  #splashTitle{ font-weight:600; margin:0 0 8px; font-size:clamp(24px, 6vw, 64px); }
+  #splashTag{ opacity:.85; margin:0 0 10px; font-size:clamp(12px, 2.5vw, 20px); }
+  #splashVer{ opacity:.65; font-size:clamp(10px, 1.8vw, 14px); }
+  #splashHint{ margin-top:12px; color:var(--accent); opacity:.75; letter-spacing:1px; font-size:clamp(10px, 1.8vw, 13px); }
+
+  .wrap{display:grid; grid-template-columns:280px 1fr 360px; grid-template-rows:48px 1fr; height:100%; opacity:0; transition:opacity 1.5s ease;}
+  header{grid-column:1/4; grid-row:1; display:flex; align-items:center; justify-content:space-between; padding:0 12px; background:var(--panel); border-bottom:1px solid var(--panel-border)}
+  header .title{color:var(--accent); letter-spacing:1px}
+  header .tick{color:var(--gold)}
+  #toolbar{grid-column:1; grid-row:2; border-right:1px solid var(--panel-border); background:var(--panel); padding:10px}
+  #toolbar h3,#hud h3{margin:8px 0 6px; font-weight:600; color:var(--accent); font-size:12px; opacity:.9}
+  .btn{display:flex; align-items:center; gap:8px; width:100%; padding:8px 10px; margin:6px 0; border:1px solid var(--panel-border); background:#0b0b0b; color:#bdbdbd; cursor:pointer; border-radius:8px}
+  .btn:hover{border-color:#2d2d2d}
+  .btn.active{outline:1px solid var(--gold)}
+  .btn kbd{margin-left:auto; opacity:.6; font-size:11px}
+  #canvasWrap{grid-column:2; grid-row:2; position:relative; background:var(--bg); overflow:hidden}
+  canvas{display:block; width:100%; height:100%}
+  #hud{ grid-column:3; grid-row:2; border-left:1px solid var(--panel-border); background:var(--panel); padding:12px; display:flex; flex-direction:column; min-height:0; }
+  #hud .metric{display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px dashed #1d1d1d}
+  #hud .metric:last-child{border-bottom:none}
+  .bar{height:6px; background:#111; border:1px solid #1c1c1c; border-radius:999px; margin-top:4px; overflow:hidden}
+  .bar>i{display:block; height:100%}
+  .hud-divider{border-top:1px dashed #1d1d1d; margin:8px 0 6px}
+  .toggle{display:flex; align-items:center; gap:8px; margin-top:6px}
+  .small{font-size:11px; opacity:.8}
+  .legend{margin-top:12px; font-size:12px; color:#8a8a8a}
+  .pill{display:inline-block; padding:2px 6px; border:1px solid #2a2a2a; border-radius:999px; margin-right:6px}
+  .sep{height:8px}
+  #hudLog{ display:flex; flex-direction:column; gap:6px; margin-top:8px; min-height:0; flex:1 1 auto; }
+  #hudLog .titleRow{display:flex; align-items:center; justify-content:space-between}
+  #hudLog .titleRow h3{margin:0; font-weight:600; color:var(--accent); font-size:12px; opacity:.9}
+  #terminal{ flex:1 1 auto; background:#050505; border:1px solid var(--panel-border); padding:8px 10px; margin:0; white-space:pre-wrap; overflow:auto; color:#9d9d9d; border-radius:8px; }
+
+  /* Cursor-aligned tooltip (text only) */
+  .tooltip{ position:fixed; pointer-events:none; color:var(--accent); font:12px/1.3 "IBM Plex Mono", monospace; background:transparent; text-shadow:0 0 2px rgba(0,0,0,.4); z-index:999; display:none; white-space:nowrap; }
+</style>
+</head>
+<body>
+  <div id="splash">
+    <div id="splashInner">
+      <h1 id="splashTitle">THE STABILITY INDEX</h1>
+      <div id="splashTag">All flows must be accounted for.</div>
+      <div id="splashVer">v1.7.0</div>
+      <div id="splashHint">[D] switch demo<br/>[N] new city</div>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <header>
+      <div class="title">THE STABILITY INDEX <span class="small">v1.7.0</span><div class="small" style="opacity:.7; letter-spacing:1px;">All flows must be accounted for.</div></div>
+      <div class="title small">
+        tool: <span id="toolName">Place</span> | cycle: <span class="tick" id="tickCount">000000</span> |
+        zoom: <span class="small" id="zoomLabel">100%</span> | scenario: <span class="small" id="scenarioLabel">balanced</span> |
+        <button id="seedBtn" class="btn" style="display:inline-flex;width:auto;padding:4px 8px;margin:0;border-radius:6px;">Seed</button>
+      </div>
+    </header>
+
+    <aside id="toolbar">
+      <h3>TOOLS</h3>
+      <button class="btn" data-tool="place">Place <kbd>1</kbd></button>
+      <button class="btn" data-tool="rotate">Rotate <kbd>R</kbd></button>
+      <button class="btn" data-tool="erase">Erase <kbd>X</kbd></button>
+
+      <div class="sep"></div>
+      <h3>COMPONENTS</h3>
+      <button class="btn" data-comp="block" title="emits P; optional siphon">Block <kbd>2</kbd></button>
+      <button class="btn" data-comp="mine" title="consumes P → B">Mine <kbd>3</kbd></button>
+      <button class="btn" data-comp="conveyor" title="directional; moves B (fast)">Conveyor <kbd>4</kbd></button>
+      <button class="btn" data-comp="factory" title="consumes B+P → A">Factory <kbd>5</kbd></button>
+      <button class="btn" data-comp="holding" title="buffer P; release/route">Holding <kbd>6</kbd></button>
+      <button class="btn" data-comp="road" title="bidirectional; P primary">Road <kbd>7</kbd></button>
+      <button class="btn" data-comp="rail" title="directional; A/R export">Rail <kbd>8</kbd></button>
+      <button class="btn" data-comp="solution" title="consumes P → A">Final Solution <kbd>9</kbd></button>
+      <button class="btn" data-comp="refinery" title="consumes A → R">Refinery <kbd>0</kbd></button>
+      <button class="btn" data-comp="port" title="exports R via rail">Port <kbd>P</kbd></button>
+
+      <div class="legend">
+        <div class="pill">grid <span style="color:var(--grid)">#</span></div>
+        <div class="pill">P <span style="color:var(--pink)">#</span></div>
+        <div class="pill">B <span style="color:var(--black)">#</span></div>
+        <div class="pill">A <span style="color:var(--gold)">#</span></div>
+        <div class="pill">R <span style="color:var(--refined)">#</span></div>
+        <div class="pill">road <span style="color:var(--road)">#</span></div>
+        <div class="pill">rail <span style="color:var(--rail)">#</span></div>
+      </div>
+    </aside>
+
+    <main id="canvasWrap">
+      <canvas id="game"></canvas>
+      <div id="tip" class="tooltip"></div>
+    </main>
+
+    <aside id="hud">
+      <h3>METRICS</h3>
+      <div class="metric"><span>PROFIT</span><span id="mProfit">0</span></div>
+      <div class="bar"><i id="barProfit" style="width:0%; background:var(--green);"></i></div>
+      <div class="metric"><span>STABILITY</span><span id="mCompliance">0%</span></div>
+      <div class="bar"><i id="barCompliance" style="width:0%; background:var(--green);"></i></div>
+      <div class="metric"><span>PURITY</span><span id="mPurity">100%</span></div>
+      <div class="bar"><i id="barPurity" style="width:100%; background:var(--line);"></i></div>
+      <div class="metric"><span>VARIANCE</span><span id="mUnrest">0%</span></div>
+      <div class="bar"><i id="barUnrest" style="width:0%; background:var(--red);"></i></div>
+
+      <div class="hud-divider"></div>
+      <h3>OPTIONS</h3>
+      <div class="toggle"><input type="checkbox" id="siphonToggle"><label for="siphonToggle" class="small">Block siphon (P → Holding)</label></div>
+      <div class="toggle"><input type="checkbox" id="holdingReleaseToggle"><label for="holdingReleaseToggle" class="small">Holding: release P</label></div>
+      <div class="toggle"><input type="checkbox" id="holdingToSolutionToggle"><label for="holdingToSolutionToggle" class="small">Holding: route P → Final Solution</label></div>
+
+      <div class="hud-divider"></div>
+      <div id="hudLog">
+        <div class="titleRow"><h3>LOG</h3></div>
+        <pre id="terminal"></pre>
+      </div>
+    </aside>
+  </div>
+
+<script>
+(function(){
+"use strict";
+
+function css(v){ return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
+const COLORS = {
+  grid:css('--grid'), line:css('--line'), text:css('--text'),
+  green:css('--green'), red:css('--red'),
+  road:css('--road'), rail:css('--rail'),
+  pink:css('--pink'), gold:css('--gold'), black:css('--black'), refined:css('--refined')
+};
+
+const wrap = document.getElementById('canvasWrap');
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const tip = document.getElementById('tip');
+const term = document.getElementById('terminal');
+
+const GRID_SIZE = 84;
+const TICK_MS = 500;
+
+const TYPES = { empty:0, block:1, mine:2, conveyor:3, factory:4, holding:5, road:6, rail:7, solution:8, refinery:9, port:10 };
+const K = { B:'Resource_B', P:'Resource_P', A:'Resource_A', R:'Resource_R' };
+
+const VEC = [[0,-1],[1,0],[0,1],[-1,0]];
+function normRot(rot){ if(!Number.isFinite(rot)) rot=0; rot=(rot|0)%4; if(rot<0) rot+=4; return rot; }
+function safeVec(dir){ const r = normRot(dir); const v = VEC[r]; return (Array.isArray(v) && v.length===2) ? v : [0,0]; }
+
+function makeCell(){ const b={}; b[K.B]=0; b[K.P]=0; b[K.A]=0; b[K.R]=0; return { type:TYPES.empty, rot:0, buffer:b, siphon:false }; }
+let grid = [];
+function initGrid(){ grid.length=0; for(let y=0;y<GRID_SIZE;y++){ const row=[]; for(let x=0;x<GRID_SIZE;x++) row.push(makeCell()); grid.push(row); } }
+function inBounds(x,y){ return x>=0 && y>=0 && x<GRID_SIZE && y<GRID_SIZE; }
+function getCell(x,y){ return inBounds(x,y) ? grid[y][x] : null; }
+function clamp(v,a,b){ return Math.min(b, Math.max(a,v)); }
+
+let W=0,H=0, cycleCount=0;
+let zoomLevel=1.0;
+let cameraX=0, cameraY=0, targetCameraX=0, targetCameraY=0;
+const keys = { ArrowLeft:false, ArrowRight:false, ArrowUp:false, ArrowDown:false };
+const PAN_SPEED_TILES_PER_SEC = 18;
+const EASE = 0.15;
+
+function viewportTiles(){
+  const cw = canvas.width / GRID_SIZE;
+  const ch = canvas.height / GRID_SIZE;
+  const vw = (canvas.width / zoomLevel) / cw;
+  const vh = (canvas.height / zoomLevel) / ch;
+  return { w:vw, h:vh };
+}
+function clampCamera(){
+  const vp = viewportTiles();
+  const maxX = Math.max(0, GRID_SIZE - vp.w);
+  const maxY = Math.max(0, GRID_SIZE - vp.h);
+  targetCameraX = clamp(targetCameraX, 0, maxX);
+  targetCameraY = clamp(targetCameraY, 0, maxY);
+}
+
+function cellAt(px,py){
+  const rect = canvas.getBoundingClientRect();
+  const relX = px - rect.left;
+  const relY = py - rect.top;
+  const ux = relX / zoomLevel;
+  const uy = relY / zoomLevel;
+  const cw = canvas.width / GRID_SIZE;
+  const ch = canvas.height / GRID_SIZE;
+  const worldX = ux + cameraX * cw;
+  const worldY = uy + cameraY * ch;
+  const x = Math.floor(worldX / cw);
+  const y = Math.floor(worldY / ch);
+  return { x: clamp(x,0,GRID_SIZE-1), y: clamp(y,0,GRID_SIZE-1) };
+}
+
+const metrics = { profit:0, stability:0, purity:100, variance:0 };
+const tools = { current:'place', comp:'conveyor' };
+const ui = { hover:{x:-1,y:-1}, rotate:0, siphonEnabled:false, holdRelease:false, holdToSolution:false };
+
+function setTool(t){ tools.current=t; byId('toolName').textContent = t.charAt(0).toUpperCase()+t.slice(1); qAll('#toolbar .btn').forEach(b=>{ if(b.dataset.tool===t) b.classList.add('active'); else b.classList.remove('active'); }); }
+function setComp(c){ tools.comp=c; qAll('#toolbar .btn').forEach(b=>{ if(b.dataset.comp===c) b.classList.add('active'); else if(b.dataset.comp) b.classList.remove('active'); }); }
+
+function place(x,y,type,rot){
+  const t = (typeof type==='number') ? type : (TYPES[tools.comp] ?? TYPES.conveyor);
+  const c = getCell(x,y); if(!c) return;
+  c.type = t; c.rot = normRot(typeof rot==='number' ? rot : 0);
+  if(t===TYPES.block) c.siphon = ui.siphonEnabled;
+  log(`place ${nameOf(t)} @ ${x},${y} rot ${c.rot}`);
+}
+function erase(x,y){ const c=getCell(x,y); if(!c) return; if(c.type!==TYPES.empty){ grid[y][x]=makeCell(); log(`erase @ ${x},${y}`); } }
+function rotate(x,y){ const c=getCell(x,y); if(!c) return; if(c.type!==TYPES.empty){ c.rot = normRot(c.rot+1); log(`rotate @ ${x},${y} → ${c.rot}`); } }
+function nameOf(t){ for(const k in TYPES){ if(TYPES[k]===t) return (k==='solution'?'Final Solution':k); } return 'unknown'; }
+
+let flows=[];
+let holdingPulse=0, solutionPulse=0;
+function ping(x,y,k){ flows.push({x,y,t:1.0,kind:k}); }
+function stepFlows(dt){ for(let i=flows.length-1;i>=0;i--){ const p=flows[i]; p.t -= dt*1.5; if(p.t<=0) flows.splice(i,1); } }
+
+function pushToNearestHolding(x,y){
+  let best=Infinity, bx=-1, by=-1;
+  for(let j=0;j<GRID_SIZE;j++) for(let i=0;i<GRID_SIZE;i++){
+    const c = grid[j][i]; if(c.type===TYPES.holding){ const d=Math.abs(i-x)+Math.abs(j-y); if(d<best){best=d; bx=i; by=j;} }
+  }
+  if(bx>=0){ grid[by][bx].buffer[K.P] += 1; holdingPulse++; ping(bx,by,K.P); }
+}
+function pushToNearestSolution(x,y){
+  let best=Infinity, bx=-1, by=-1;
+  for(let j=0;j<GRID_SIZE;j++) for(let i=0;i<GRID_SIZE;i++){
+    const c = grid[j][i]; if(c.type===TYPES.solution){ const d=Math.abs(i-x)+Math.abs(j-y); if(d<best){best=d; bx=i; by=j;} }
+  }
+  if(bx>=0){ grid[by][bx].buffer[K.P] += 1; solutionPulse++; ping(bx,by,K.P); }
+}
+
+function neighborOrderInt(rot){ rot=normRot(rot); return [rot,(rot+1)%4,(rot+2)%4,(rot+3)%4]; }
+
+function releaseFromHolding(x,y,c){
+  const order = neighborOrderInt(c.rot);
+  for(let idx=0; idx<order.length; idx++){
+    const dv = safeVec(order[idx]); if(!dv||dv.length!==2) continue; if(dv[0]===0 && dv[1]===0) continue;
+    const nx=x+dv[0], ny=y+dv[1]; if(!inBounds(nx,ny)) continue;
+    const n = grid[ny][nx]; if(n.type!==TYPES.empty && c.buffer[K.P]>0){ c.buffer[K.P]--; n.buffer[K.P]++; ping(nx,ny,K.P); metrics.variance = clamp(metrics.variance - 0.05, 0, 100); break; }
+  }
+}
+
+function forEachCellType(type, fn){ for(let y=0;y<GRID_SIZE;y++) for(let x=0;x<GRID_SIZE;x++){ const c=grid[y][x]; if(c.type===type) fn(x,y,c); } }
+
+function moveDirectedFiltered(x,y,c, steps=1, railOnly=false, allowedKeys=[]){
+  if(!c) return;
+  const dv = safeVec(c.rot); if(!dv||dv.length!==2|| (dv[0]===0 && dv[1]===0)) return;
+  let cx=x, cy=y;
+  for(let s=0;s<steps;s++){
+    const nx=cx+dv[0], ny=cy+dv[1]; if(!inBounds(nx,ny)) break;
+    const n=grid[ny][nx];
+    for(let i=0;i<allowedKeys.length;i++){
+      const k=allowedKeys[i]; if(grid[cy][cx].buffer[k]>0){ grid[cy][cx].buffer[k]--; n.buffer[k]++; ping(nx,ny,k);
+        if((k===K.A || k===K.R) && n.type===TYPES.road){ metrics.profit += 0.5; log('domestic: +0.5'); }
+      }
+    }
+    cx=nx; cy=ny;
+    if(railOnly && grid[cy][cx].type!==TYPES.rail) break;
+    if(!railOnly && steps===1) break;
+  }
+}
+
+function roadTransfer(x,y,c){
+  if(!c) return;
+  const dirs = neighborOrderInt(c.rot);
+  let movedP=0;
+  for(let d=0; d<dirs.length; d++){
+    const dv=safeVec(dirs[d]); if(!dv||dv.length!==2) continue; if(dv[0]===0 && dv[1]===0) continue;
+    const nx=x+dv[0], ny=y+dv[1]; if(!inBounds(nx,ny)) continue;
+    const n=grid[ny][nx];
+    const prefer = (n.type===TYPES.factory || n.type===TYPES.holding || n.type===TYPES.block || n.type===TYPES.road);
+    if(prefer && c.buffer[K.P]>0){ c.buffer[K.P]--; n.buffer[K.P]++; ping(nx,ny,K.P); movedP++; if(movedP>=2) break; }
+  }
+  if(movedP<2){
+    for(let d2=0; d2<dirs.length && movedP<2; d2++){
+      const dv2=safeVec(dirs[d2]); if(!dv2||dv2.length!==2) continue; if(dv2[0]===0 && dv2[1]===0) continue;
+      const nx2=x+dv2[0], ny2=y+dv2[1]; if(!inBounds(nx2,ny2)) continue;
+      const n2=grid[ny2][nx2]; if(c.buffer[K.P]>0 && n2.type!==TYPES.empty){ c.buffer[K.P]--; n2.buffer[K.P]++; ping(nx2,ny2,K.P); movedP++; }
+    }
+  }
+  // B via road (fallback, 1 step)
+  for(let db=0; db<dirs.length; db++){
+    const vb=safeVec(dirs[db]); if(!vb||vb.length!==2) continue; if(vb[0]===0 && vb[1]===0) continue;
+    const nbx=x+vb[0], nby=y+vb[1]; if(!inBounds(nbx,nby)) continue;
+    const nb=grid[nby][nbx]; if(c.buffer[K.B]>0 && nb.type!==TYPES.empty){ c.buffer[K.B]--; nb.buffer[K.B]++; ping(nbx,nby,K.B); break; }
+  }
+  // A via road (domestic, +profit)
+  for(let da=0; da<dirs.length; da++){
+    const va=safeVec(dirs[da]); if(!va||va.length!==2) continue; if(va[0]===0 && va[1]===0) continue;
+    const nax=x+va[0], nay=y+va[1]; if(!inBounds(nax,nay)) continue;
+    const na=grid[nay][nax]; if(c.buffer[K.A]>0 && na.type!==TYPES.empty){ c.buffer[K.A]--; na.buffer[K.A]++; ping(nax,nay,K.A); metrics.profit+=0.5; log('domestic: +0.5'); break; }
+  }
+  // R via road (to reach rail/port) — no profit
+  for(let dr=0; dr<dirs.length; dr++){
+    const vr=safeVec(dirs[dr]); if(!vr||vr.length!==2) continue; if(vr[0]===0 && vr[1]===0) continue;
+    const nrx=x+vr[0], nry=y+vr[1]; if(!inBounds(nrx,nry)) continue;
+    const nr=grid[nry][nrx]; if(c.buffer[K.R]>0 && nr.type!==TYPES.empty){ c.buffer[K.R]--; nr.buffer[K.R]++; ping(nrx,nry,K.R); break; }
+  }
+}
+
+function roadFieldFactors(){
+  let covered=0,total=0;
+  for(let y=0;y<GRID_SIZE;y++) for(let x=0;x<GRID_SIZE;x++){
+    const cell=grid[y][x]; if(cell.type===TYPES.empty) continue; total++;
+    let near=false;
+    for(let dy=-4; dy<=4 && !near; dy++) for(let dx=-4; dx<=4 && !near; dx++){
+      const nx=x+dx, ny=y+dy; if(!inBounds(nx,ny)) continue;
+      if(Math.abs(dx)+Math.abs(dy)<=4 && grid[ny][nx].type===TYPES.road) near=true;
+    }
+    if(near) covered++;
+  }
+  const r = total>0 ? covered/total : 0;
+  return { varianceFactor: 1 - 0.5*r, purityFactor: 1 - 0.5*r };
+}
+
+function proximityVariance(){
+  let u=0;
+  for(let y=0;y<GRID_SIZE;y++) for(let x=0;x<GRID_SIZE;x++){
+    if(grid[y][x].type===TYPES.holding || grid[y][x].type===TYPES.solution){
+      for(let dy=-6; dy<=6; dy++) for(let dx=-6; dx<=6; dx++){
+        const nx=x+dx, ny=y+dy; if(!inBounds(nx,ny)) continue;
+        if(Math.abs(dx)+Math.abs(dy)<=6 && grid[ny][nx].type===TYPES.block) u+=0.18;
+      }
+    }
+  }
+  return u;
+}
+function outputSoother(){ let a=0; for(let y=0;y<GRID_SIZE;y++) for(let x=0;x<GRID_SIZE;x++) a+=grid[y][x].buffer[K.A]; return Math.min(2, a*0.02); }
+
+function tick(){
+  for(let y=0;y<GRID_SIZE;y++) for(let x=0;x<GRID_SIZE;x++){ grid[y][x].rot = normRot(grid[y][x].rot); }
+  cycleCount++; byId('tickCount').textContent = String(cycleCount).padStart(6,'0');
+
+  for(let y=0;y<GRID_SIZE;y++){
+    for(let x=0;x<GRID_SIZE;x++){
+      const c = grid[y][x];
+      if(c.type===TYPES.block){ c.buffer[K.P]+=1; ping(x,y,K.P); if(c.siphon && c.buffer[K.P]>0 && Math.random()<0.08){ c.buffer[K.P]--; pushToNearestHolding(x,y); } }
+      if(c.type===TYPES.mine){ if(c.buffer[K.P]>0){ c.buffer[K.P]--; c.buffer[K.B]+=2; ping(x,y,K.B); } }
+      if(c.type===TYPES.factory){ if(c.buffer[K.B]>0 && c.buffer[K.P]>0){ c.buffer[K.B]--; c.buffer[K.P]--; c.buffer[K.A]++; metrics.profit+=5; ping(x,y,K.A); } }
+      if(c.type===TYPES.refinery){ if(c.buffer[K.A]>0){ c.buffer[K.A]--; c.buffer[K.R]++; metrics.profit+=3; metrics.purity=clamp(metrics.purity-0.02,0,100); ping(x,y,K.R); } }
+      if(c.type===TYPES.port){ if(c.buffer[K.R]>0){ c.buffer[K.R]--; metrics.profit+=15; metrics.stability=clamp(metrics.stability+0.3,0,100); metrics.purity=clamp(metrics.purity+0.02,0,100); metrics.variance=clamp(metrics.variance-0.05,0,100); ping(x,y,K.R); log('export registered: +15'); } }
+      if(c.type===TYPES.holding){
+        if(ui.holdToSolution && c.buffer[K.P]>0){ c.buffer[K.P]--; pushToNearestSolution(x,y); }
+        else if(ui.holdRelease && c.buffer[K.P]>0){ releaseFromHolding(x,y,c); }
+      }
+      if(c.type===TYPES.solution){ if(c.buffer[K.P]>0){ c.buffer[K.P]--; c.buffer[K.A]+=2; metrics.profit+=10; metrics.purity=clamp(metrics.purity-0.12,0,100); ping(x,y,K.A); } }
+    }
+  }
+
+  forEachCellType(TYPES.conveyor, (x,y,c)=> moveDirectedFiltered(x,y,c,2,true,[K.B]));
+  forEachCellType(TYPES.road, (x,y,c)=> roadTransfer(x,y,c));
+  forEachCellType(TYPES.rail, (x,y,c)=> moveDirectedFiltered(x,y,c,2,true,[K.A,K.R]));
+
+  let dStab = holdingPulse*0.5 + solutionPulse*0.8; holdingPulse=0; solutionPulse=0;
+  let basePurityDecay = (metrics.stability>60 ? 0.06 : 0.02);
+  let baseVarianceChange = proximityVariance()*0.22 - Math.min(0.35, outputSoother()) - (metrics.stability/100)*0.12;
+  const rf = roadFieldFactors();
+  metrics.stability = clamp(metrics.stability + dStab, 0, 100);
+  metrics.purity    = clamp(metrics.purity - basePurityDecay*rf.purityFactor, 0, 100);
+  metrics.variance  = clamp(metrics.variance + baseVarianceChange*rf.varianceFactor, 0, 100);
+
+  updateHUD();
+  ambientLogs();
+}
+
+function resize(){ const r=document.getElementById('canvasWrap').getBoundingClientRect(); canvas.width=r.width; canvas.height=r.height; W=canvas.width; H=canvas.height; if(!Array.isArray(grid)||grid.length===0) return; draw(false); }
+
+function draw(updateTip){
+  if(!Array.isArray(grid) || grid.length===0 || !Array.isArray(grid[0])) return;
+  const cw = canvas.width/GRID_SIZE, ch=canvas.height/GRID_SIZE;
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.setTransform(zoomLevel,0,0,zoomLevel, -cameraX*cw*zoomLevel, -cameraY*ch*zoomLevel);
+
+  ctx.strokeStyle = COLORS.grid; ctx.lineWidth = 1; ctx.beginPath();
+  for(let i=0;i<=GRID_SIZE;i++){ const gx=Math.round(i*cw)+0.5; ctx.moveTo(gx,0); ctx.lineTo(gx,GRID_SIZE*ch); const gy=Math.round(i*ch)+0.5; ctx.moveTo(0,gy); ctx.lineTo(GRID_SIZE*cw,gy); }
+  ctx.stroke();
+
+  if(ui.hover.x>=0){ ctx.fillStyle="rgba(255,255,255,0.04)"; ctx.fillRect(ui.hover.x*cw, ui.hover.y*ch, cw, ch); }
+
+  for(let y=0;y<GRID_SIZE;y++) for(let x=0;x<GRID_SIZE;x++){
+    const c=grid[y][x]; if(c.type===TYPES.empty) continue;
+    const cx=x*cw, cy=y*ch; const midx=cx+cw/2, midy=cy+ch/2;
+    ctx.strokeStyle="#1c1c1c"; ctx.lineWidth=1; ctx.strokeRect(Math.floor(cx)+0.5, Math.floor(cy)+0.5, Math.floor(cw)-1, Math.floor(ch)-1);
+    switch(c.type){
+      case TYPES.block: drawNode(midx,midy,cw,ch, COLORS.pink); drawTriangle(midx,midy, COLORS.pink); if(c.siphon){ cornerFlag(cx,cy,cw,ch, COLORS.red); } break;
+      case TYPES.mine: drawNode(midx,midy,cw,ch, COLORS.black); drawMineGlyph(midx,midy); break;
+      case TYPES.conveyor: drawArrow(midx,midy,cw,ch,c.rot, COLORS.line); break;
+      case TYPES.factory: drawNode(midx,midy,cw,ch, css('--accent')||'#c8c8c8'); drawCog(midx,midy); break;
+      case TYPES.holding: drawNode(midx,midy,cw,ch, 'transparent', true); drawBars(midx,midy, COLORS.red); break;
+      case TYPES.road: drawRoad(midx,midy,cw,ch,c.rot); break;
+      case TYPES.rail: drawRail(midx,midy,cw,ch,c.rot); break;
+      case TYPES.solution: drawSolution(midx,midy,cw,ch); break;
+      case TYPES.refinery: drawRefinery(midx,midy,cw,ch); break;
+      case TYPES.port: drawPort(midx,midy,cw,ch); break;
+    }
+    const pip=2,gap=2,ox=cx+4,oy=cy+4;
+    drawPip(ox, oy + 0*(pip+gap), c.buffer[K.B], COLORS.black);
+    drawPip(ox, oy + 1*(pip+gap), c.buffer[K.P], COLORS.pink);
+    drawPip(ox, oy + 2*(pip+gap), c.buffer[K.A], COLORS.gold);
+    drawPip(ox, oy + 3*(pip+gap), c.buffer[K.R], COLORS.refined);
+  }
+
+  stepFlows(0.033);
+  flows.forEach(p=>{
+    const cx=(p.x+0.5)*cw, cy=(p.y+0.5)*ch;
+    ctx.beginPath(); ctx.arc(cx,cy,2.2,0,Math.PI*2);
+    ctx.fillStyle = p.kind===K.A ? COLORS.gold : p.kind===K.B ? COLORS.black : p.kind===K.R ? COLORS.refined : COLORS.pink;
+    ctx.globalAlpha = p.t*0.85; ctx.fill(); ctx.globalAlpha=1;
+  });
+
+  if(ui.hover.x>=0){ ctx.strokeStyle = COLORS.gold; ctx.lineWidth=1; ctx.strokeRect(ui.hover.x*cw+0.5, ui.hover.y*ch+0.5, cw-1, ch-1); }
+
+  ctx.setTransform(1,0,0,1,0,0);
+  byId('zoomLabel').textContent = Math.round(zoomLevel*100)+'%';
+  W = canvas.width; H = canvas.height;
+}
+
+function typeLabel(t){
+  switch(t){
+    case TYPES.block: return 'Block';
+    case TYPES.mine: return 'Mine';
+    case TYPES.conveyor: return 'Conveyor';
+    case TYPES.factory: return 'Factory';
+    case TYPES.holding: return 'Holding';
+    case TYPES.road: return 'Road';
+    case TYPES.rail: return 'Rail';
+    case TYPES.solution: return 'Final Solution';
+    case TYPES.refinery: return 'Refinery';
+    case TYPES.port: return 'Port';
+    default: return 'Empty';
+  }
+}
+
+function drawPip(x,y,count,color){ if(count<=0) return; ctx.fillStyle=color; ctx.globalAlpha=0.9; ctx.fillRect(x,y,4,4); ctx.globalAlpha=1; }
+function drawNode(cx,cy,cw,ch,color,dashed=false){ const w=cw*0.64, h=ch*0.64; const x=cx-w/2, y=cy-h/2; if(dashed){ ctx.setLineDash([3,2]); ctx.strokeStyle=color; ctx.lineWidth=1.2; ctx.strokeRect(x,y,w,h); ctx.setLineDash([]);} else { ctx.strokeStyle=color; ctx.lineWidth=1.2; ctx.strokeRect(x,y,w,h);} }
+function drawTriangle(cx,cy,color){ ctx.strokeStyle=color; ctx.lineWidth=1.2; ctx.beginPath(); ctx.moveTo(cx-5,cy+3); ctx.lineTo(cx,cy-5); ctx.lineTo(cx+5,cy+3); ctx.closePath(); ctx.stroke(); }
+function cornerFlag(x,y,cw,ch,color){ ctx.fillStyle=color; ctx.globalAlpha=.25; ctx.fillRect(x,y,cw*0.35,ch*0.35); ctx.globalAlpha=1; }
+function drawCog(cx,cy){ ctx.strokeStyle = css('--accent')||'#c8c8c8'; ctx.lineWidth=1.2; ctx.beginPath(); ctx.arc(cx,cy,5,0,Math.PI*2); ctx.stroke(); for(let i=0;i<6;i++){ const a=i*Math.PI/3; ctx.beginPath(); ctx.moveTo(cx+Math.cos(a)*7, cy+Math.sin(a)*7); ctx.lineTo(cx+Math.cos(a)*9, cy+Math.sin(a)*9); ctx.stroke(); } }
+function drawBars(cx,cy,color){ ctx.strokeStyle=color; ctx.lineWidth=1; const r=8; for(let i=-3;i<=3;i++){ ctx.beginPath(); ctx.moveTo(cx- r, cy + i*2); ctx.lineTo(cx+ r, cy + i*2); ctx.stroke(); } }
+function drawArrow(cx,cy,cw,ch,rot,color){ rot=normRot(rot); ctx.strokeStyle=color; ctx.lineWidth=1.6; const len=Math.min(cw,ch)*0.32; ctx.save(); ctx.translate(cx,cy); ctx.rotate(rot*Math.PI/2); ctx.beginPath(); ctx.moveTo(-len,0); ctx.lineTo(len,0); ctx.moveTo(len,0); ctx.lineTo(len-4,-3); ctx.moveTo(len,0); ctx.lineTo(len-4,3); ctx.stroke(); ctx.restore(); }
+function drawRoad(cx,cy,cw,ch,rot){ rot=normRot(rot); ctx.strokeStyle=COLORS.road; ctx.lineWidth=1.4; ctx.globalAlpha=0.9; ctx.beginPath(); ctx.moveTo(cx - cw*0.34, cy); ctx.lineTo(cx + cw*0.34, cy); ctx.moveTo(cx, cy - ch*0.34); ctx.lineTo(cx, cy + ch*0.34); ctx.stroke(); ctx.globalAlpha=1; ctx.save(); ctx.translate(cx,cy); ctx.rotate(rot*Math.PI/2); ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(cw*0.22,0); ctx.stroke(); ctx.restore(); }
+function drawRail(cx,cy,cw,ch,rot){ rot=normRot(rot); ctx.save(); ctx.translate(cx,cy); ctx.rotate(rot*Math.PI/2); ctx.strokeStyle=COLORS.rail; ctx.lineWidth=1.2; ctx.beginPath(); ctx.moveTo(-cw*0.30,-ch*0.08); ctx.lineTo(cw*0.30,-ch*0.08); ctx.moveTo(-cw*0.30,ch*0.08); ctx.lineTo(cw*0.30,ch*0.08); ctx.stroke(); ctx.beginPath(); ctx.moveTo(cw*0.22,0); ctx.lineTo(cw*0.16,-ch*0.08); ctx.moveTo(cw*0.22,0); ctx.lineTo(cw*0.16,ch*0.08); ctx.stroke(); ctx.restore(); }
+function drawSolution(cx,cy,cw,ch){ const r = Math.min(cw,ch)*0.32; ctx.strokeStyle = COLORS.gold; ctx.lineWidth = 1.5; ctx.beginPath(); for(let i=0;i<6;i++){ const a = (Math.PI/3)*i; const x = cx + Math.cos(a)*r; const y = cy + Math.sin(a)*r; if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y); } ctx.closePath(); ctx.stroke(); ctx.globalAlpha = 0.25 + 0.25*Math.sin(Date.now()/600); ctx.fillStyle = COLORS.gold; ctx.fill(); ctx.globalAlpha=1; }
+function drawRefinery(cx,cy,cw,ch){ ctx.strokeStyle='#b0b0b0'; ctx.lineWidth=1.2; const w=cw*0.64, h=ch*0.64; const x=cx-w/2, y=cy-h/2; ctx.strokeRect(x,y,w,h); ctx.beginPath(); ctx.moveTo(x+w*0.25,y-2); ctx.lineTo(x+w*0.25,y-8); ctx.moveTo(x+w*0.75,y-2); ctx.lineTo(x+w*0.75,y-8); ctx.stroke(); }
+function drawMineGlyph(cx,cy){ ctx.strokeStyle = COLORS.black; ctx.lineWidth=1.2; ctx.beginPath(); ctx.moveTo(cx-6, cy+4); ctx.lineTo(cx+6, cy+4); ctx.stroke(); ctx.beginPath(); ctx.moveTo(cx-4, cy+4); ctx.lineTo(cx, cy-4); ctx.lineTo(cx+4, cy+4); ctx.stroke(); }
+function drawPort(cx,cy,cw,ch){ ctx.strokeStyle='#7ad7ff'; ctx.lineWidth=1.2; const w=cw*0.7, h=ch*0.5; const x=cx-w/2, y=cy-h/2; ctx.strokeRect(x,y,w,h); for(let i=0;i<3;i++){ const px=x+i*(w/3)+w/6; ctx.beginPath(); ctx.moveTo(px,y); ctx.lineTo(px,y-6); ctx.moveTo(px,y-6); ctx.lineTo(px+3,y-6); ctx.stroke(); } }
+
+function log(s){ const t = `[CYCLE:${String(cycleCount).padStart(6,'0')}] ${s}`; term.textContent = (term.textContent + (term.textContent?'\n':'') + t).split('\n').slice(-12).join('\n'); term.scrollTop = term.scrollHeight; }
+function ambientLogs(){ if(cycleCount%8===0){ log('transfer nominal'); } if(metrics.variance>25 && cycleCount%6===0){ log('variance drift contained'); } if(metrics.stability>50 && cycleCount%10===0){ log('stability positive'); } if(metrics.purity<60 && cycleCount%9===0){ log('purity drift'); } }
+function updateHUD(){
+  byId('mProfit').textContent = Math.floor(metrics.profit);
+  byId('barProfit').style.width = Math.min(100, metrics.profit/5) + '%';
+  byId('mCompliance').textContent = metrics.stability.toFixed(1)+'%';
+  byId('barCompliance').style.width = metrics.stability + '%';
+  byId('mPurity').textContent = metrics.purity.toFixed(1)+'%';
+  byId('barPurity').style.width = metrics.purity + '%';
+  byId('mUnrest').textContent = metrics.variance.toFixed(1)+'%';
+  byId('barUnrest').style.width = metrics.variance + '%';
+}
+
+byId('siphonToggle').addEventListener('change', (e)=>{ ui.siphonEnabled = e.target.checked; log(`block siphon ${ui.siphonEnabled? 'on':'off'}`); });
+byId('holdingReleaseToggle').addEventListener('change', (e)=>{ ui.holdRelease = e.target.checked; log(`holding release ${ui.holdRelease? 'on':'off'}`); });
+byId('holdingToSolutionToggle').addEventListener('change', (e)=>{ ui.holdToSolution = e.target.checked; log(`holding → final-solution ${ui.holdToSolution? 'on':'off'}`); });
+
+byId('toolbar').addEventListener('click', (e)=>{ const b = e.target.closest('.btn'); if(!b) return; if(b.dataset.tool) setTool(b.dataset.tool); if(b.dataset.comp) setComp(b.dataset.comp); });
+byId('seedBtn').addEventListener('click', ()=>{ if(typeof currentScenario==='string' && currentScenario==='balanced'){ seedDemoProfit(); } else { seedDemoBalanced(); } });
+
+canvas.addEventListener('contextmenu', e=>e.preventDefault());
+canvas.addEventListener('mousemove', (e)=>{
+  ui.hover = cellAt(e.clientX, e.clientY);
+  const c = grid[ui.hover.y] && grid[ui.hover.y][ui.hover.x];
+  if(c && c.type && c.type!==TYPES.empty){
+    tip.textContent = typeLabel(c.type);
+    tip.style.display = 'block';
+    tip.style.left = (e.pageX + 10) + 'px';
+    tip.style.top  = (e.pageY + 10) + 'px';
+  } else {
+    tip.style.display = 'none';
+  }
+  draw(false);
+});
+canvas.addEventListener('mouseleave', ()=>{ tip.style.display='none'; });
+canvas.addEventListener('mousedown', (e)=>{
+  const {x,y} = cellAt(e.clientX, e.clientY);
+  if(e.button===1){ rotate(x,y); return; }
+  if(e.button===2){ erase(x,y); draw(false); return; }
+  if(tools.current==='erase'){ erase(x,y); draw(false); return; }
+  if(tools.current==='rotate'){ rotate(x,y); draw(false); return; }
+  if(tools.current==='place'){ const type = TYPES[tools.comp] ?? TYPES.conveyor; place(x,y,type, ui.rotate); draw(false); }
+});
+
+window.addEventListener('keydown', (e)=>{
+  if(e.key==='1') setTool('place');
+  if(e.key==='x'||e.key==='X') setTool('erase');
+  if(e.key==='r'||e.key==='R') setTool('rotate');
+  if(e.key==='2') setComp('block');
+  if(e.key==='3') setComp('mine');
+  if(e.key==='4') setComp('conveyor');
+  if(e.key==='5') setComp('factory');
+  if(e.key==='6') setComp('holding');
+  if(e.key==='7') setComp('road');
+  if(e.key==='8') setComp('rail');
+  if(e.key==='9') setComp('solution');
+  if(e.key==='0') setComp('refinery');
+  if(e.key==='p'||e.key==='P') setComp('port');
+  if(e.key==='=' || e.key==='+'){ zoomLevel = clamp(+(zoomLevel+0.1).toFixed(2), 0.5, 3); }
+  if(e.key==='-'){ zoomLevel = clamp(+(zoomLevel-0.1).toFixed(2), 0.5, 3); }
+  if(e.key in keys){ keys[e.key]=true; }
+  if(e.key==='d' || e.key==='D'){ if(typeof currentScenario==='string' && currentScenario==='balanced'){ seedDemoProfit(); } else { seedDemoBalanced(); } }
+  if(e.key==='n' || e.key==='N'){ seedBlank(); }
+});
+window.addEventListener('keyup', (e)=>{ if(e.key in keys) keys[e.key]=false; });
+
+let lastRAF = performance.now();
+function animate(now){
+  const dt = Math.max(0,(now-lastRAF)/1000); lastRAF=now;
+  const dx = (keys.ArrowRight?1:0) - (keys.ArrowLeft?1:0);
+  const dy = (keys.ArrowDown?1:0) - (keys.ArrowUp?1:0);
+  if(dx||dy){
+    const speed = PAN_SPEED_TILES_PER_SEC * (1/zoomLevel);
+    targetCameraX += dx * speed * dt;
+    targetCameraY += dy * speed * dt;
+    clampCamera();
+  }
+  cameraX += (targetCameraX - cameraX) * EASE;
+  cameraY += (targetCameraY - cameraY) * EASE;
+  draw(false);
+  requestAnimationFrame(animate);
+}
+
+/* === Scenarios === */
+let currentScenario = 'balanced';
+function setScenarioLabel(){ const el = document.getElementById('scenarioLabel'); if(el) el.textContent = currentScenario; }
+
+function seedBlank(){
+  initGrid();
+  ui.siphonEnabled=false; byId('siphonToggle').checked=false;
+  ui.holdToSolution=false; byId('holdingToSolutionToggle').checked=false;
+  ui.holdRelease=false; byId('holdingReleaseToggle').checked=false;
+  metrics.profit=0; metrics.stability=0; metrics.purity=100; metrics.variance=0;
+  const vp = viewportTiles();
+  targetCameraX = cameraX = Math.max(0, (GRID_SIZE - vp.w)/2);
+  targetCameraY = cameraY = Math.max(0, (GRID_SIZE - vp.h)/2);
+  currentScenario='blank'; setScenarioLabel();
+  draw(false); log('blank city ready');
+}
+
+function seedDemoBalanced(){
+  currentScenario='balanced'; setScenarioLabel();
+  initGrid();
+  const S=(x,y,t)=>{ if(inBounds(x,y)) grid[y][x].type=t; };
+  const SR=(x,y,t,r)=>{ if(inBounds(x,y)){ grid[y][x].type=t; grid[y][x].rot=normRot(r); } };
+
+  for(let y=8; y<=GRID_SIZE-8; y+=4){ for(let x=6; x<=GRID_SIZE-6; x++){ S(x,y,TYPES.road); } }
+  for(let x=6; x<=GRID_SIZE-6; x+=6){ for(let y=8; y<=GRID_SIZE-8; y++){ S(x,y,TYPES.road); } }
+
+  const SPINE_X = Math.floor(GRID_SIZE/2);
+  for(let y=4; y<=GRID_SIZE-4; y++) SR(SPINE_X,y,TYPES.rail,2);
+  S(SPINE_X,GRID_SIZE-6,TYPES.port);
+  S(SPINE_X,6,TYPES.port);
+
+  function buildLine(X,Y){
+    S(X,Y,TYPES.block); grid[Y][X].siphon=true;
+    S(X,Y+1,TYPES.road); S(X,Y+2,TYPES.mine);
+    SR(X,Y+3,TYPES.conveyor,2); SR(X,Y+4,TYPES.conveyor,2); S(X,Y+5,TYPES.factory);
+    S(X+1,Y+5,TYPES.road); S(X+2,Y+5,TYPES.road); S(X+3,Y+5,TYPES.road);
+    S(X+2,Y+4,TYPES.road); S(X+1,Y+4,TYPES.road);
+    S(X,Y+7,TYPES.road); S(X,Y+8,TYPES.refinery);
+    S(X,Y+9,TYPES.road);
+    SR(X,Y+10,TYPES.rail,1);
+    if(X<SPINE_X){ for(let x2=X+1; x2<SPINE_X; x2++) SR(x2,Y+10,TYPES.rail,1); }
+    else if(X>SPINE_X){ for(let x3=X-1; x3>SPINE_X; x3--) SR(x3,Y+10,TYPES.rail,3); }
+    S(X+5,Y,TYPES.road); S(X+7,Y,TYPES.holding); S(X+9,Y,TYPES.road); S(X+12,Y,TYPES.solution);
+  }
+
+  const xsLeft = [8, 22, 36];
+  const xsRight = [SPINE_X+8, SPINE_X+22, SPINE_X+36];
+  const ys = [8, 24, 40, 56, 72];
+  for(const Y of ys){ for(const xl of xsLeft) buildLine(xl, Y); for(const xr of xsRight) buildLine(xr, Y); }
+
+  ui.siphonEnabled=true; byId('siphonToggle').checked=true;
+  ui.holdToSolution=false; byId('holdingToSolutionToggle').checked=false;
+  ui.holdRelease=true; byId('holdingReleaseToggle').checked=true;
+
+  metrics.profit=0; metrics.stability=0; metrics.purity=100; metrics.variance=0;
+
+  const vp = viewportTiles();
+  targetCameraX = cameraX = Math.max(0, (GRID_SIZE - vp.w)/2);
+  targetCameraY = cameraY = Math.max(0, (GRID_SIZE - vp.h)/2);
+
+  draw(false); log('stable demo city seeded');
+}
+
+function seedDemoProfit(){
+  currentScenario='profit-first'; setScenarioLabel();
+  initGrid();
+  const S=(x,y,t)=>{ if(inBounds(x,y)) grid[y][x].type=t; };
+  const SR=(x,y,t,r)=>{ if(inBounds(x,y)){ grid[y][x].type=t; grid[y][x].rot=normRot(r); } };
+
+  // Aggressive road lattice for strong variance suppression
+  for(let y=4; y<=GRID_SIZE-4; y+=3){ for(let x=4; x<=GRID_SIZE-4; x++){ S(x,y,TYPES.road); } }
+  for(let x=4; x<=GRID_SIZE-4; x+=4){ for(let y=4; y<=GRID_SIZE-4; y++){ S(x,y,TYPES.road); } }
+
+  // Double rail spines with ports
+  const SP1 = Math.floor(GRID_SIZE/3);
+  const SP2 = Math.floor(GRID_SIZE*2/3);
+  for(let y=2; y<=GRID_SIZE-2; y++){ SR(SP1,y,TYPES.rail,2); SR(SP2,y,TYPES.rail,2); }
+  S(SP1,GRID_SIZE-5,TYPES.port); S(SP1,5,TYPES.port);
+  S(SP2,GRID_SIZE-5,TYPES.port); S(SP2,5,TYPES.port);
+
+  function lineHard(X,Y){
+    S(X,Y,TYPES.block); grid[Y][X].siphon=true;
+    S(X,Y+1,TYPES.road); S(X,Y+2,TYPES.mine);
+    SR(X,Y+3,TYPES.conveyor,2); SR(X,Y+4,TYPES.conveyor,2); S(X,Y+5,TYPES.factory);
+    S(X,Y+6,TYPES.road); S(X,Y+7,TYPES.refinery);
+    SR(X,Y+8,TYPES.rail,1);
+    S(X+2,Y,TYPES.road); S(X+4,Y,TYPES.holding);
+    S(X+6,Y,TYPES.road); S(X+8,Y,TYPES.solution);
+  }
+
+  const bands = [6, 22, 38, 54, 70];
+  const cols  = [10, 26, 42, 58, 74];
+  for(const Y of bands){ for(const X of cols){ lineHard(X,Y); } }
+
+  ui.siphonEnabled=true; byId('siphonToggle').checked=true;
+  ui.holdToSolution=true; byId('holdingToSolutionToggle').checked=true;
+  ui.holdRelease=false; byId('holdingReleaseToggle').checked=false;
+
+  metrics.profit=0; metrics.stability=20; metrics.purity=85; metrics.variance=10;
+
+  const vp = viewportTiles();
+  targetCameraX = cameraX = Math.max(0, (GRID_SIZE - vp.w)/2);
+  targetCameraY = cameraY = Math.max(0, (GRID_SIZE - vp.h)/2);
+
+  draw(false); log('profit-first demo city seeded');
+}
+
+/* === Boot & Splash === */
+function byId(id){ return document.getElementById(id); }
+function qAll(sel){ return Array.from(document.querySelectorAll(sel)); }
+window.onerror = function(msg,src,line,col){ if(term){ term.textContent += (term.textContent?'\n':'') + `[ERROR] ${msg} @ ${line}:${col}`; } };
+
+function startSim(){
+  seedDemoBalanced();
+  setTimeout(()=>{ log('SYSTEM INITIALIZATION — THE STABILITY INDEX'); log('all flows must be accounted for.'); log('system online'); }, 1000);
+  setInterval(tick, TICK_MS);
+  window.addEventListener('resize', resize);
+  requestAnimationFrame(animate);
+}
+function boot(){ resize(); updateHUD(); setTool('place'); setComp('conveyor'); }
+
+const splash = document.getElementById('splash');
+function runSplash(){
+  splash.classList.add('fadeIn');
+  let finished = false;
+  function endSplash(){
+    if(finished) return; finished = true;
+    splash.classList.remove('fadeIn');
+    splash.classList.add('fadeOut');
+    setTimeout(()=>{
+      splash.style.display='none';
+      document.querySelector('.wrap').style.opacity = '1';
+      setTimeout(()=>{ startSim(); }, 300);
+    }, 1000);
+  }
+  setTimeout(endSplash, 1500 + 2000); // 1.5s fade-in + 2.0s hold
+  window.addEventListener('keydown', endSplash, { once:true });
+}
+
+boot();
+runSplash();
+})();
+</script>
+</body>
+</html>
